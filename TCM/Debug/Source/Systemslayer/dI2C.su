@@ -1,0 +1,17 @@
+dI2C.c:31:13:dI2C_TransferConfig	24	static
+dI2C.c:43:13:dI2C_FlushTXDR	16	static
+dI2C.c:56:20:dI2C_IsAckSuccess	24	static
+dI2C.c:85:20:dI2C_WaitOnFlag	32	static
+dI2C.c:98:20:dI2C_WaitOnTXISFlag	24	static
+dI2C.c:115:20:dI2C_WaitOnTCFlag	24	static
+dI2C.c:132:20:dI2C_WaitOnTCRFlag	24	static
+dI2C.c:149:20:dI2C_WaitOnRXNEFlag	24	static
+dI2C.c:183:20:dI2C_WaitOnSTOPFlag	24	static
+dI2C.c:200:20:dI2C_WaitForReady	24	static
+dI2C.c:214:13:dI2C_Init	16	static
+dI2C.c:236:13:dI2C_DeInit	16	static
+dI2C.c:247:13:dI2C_Enable	16	static
+dI2C.c:258:13:dI2C_Disable	16	static
+dI2C.c:269:13:dI2C_WrReg	48	static
+dI2C.c:328:13:dI2C_RdReg	48	static
+dI2C.c:385:13:dI2C_DeviceReady	32	static

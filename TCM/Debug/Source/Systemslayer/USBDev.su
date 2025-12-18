@@ -1,0 +1,10 @@
+USBDev.c:52:15:USBDev_CDC_Init	8	static
+USBDev.c:59:15:USBDev_CDC_DeInit	4	static
+USBDev.c:64:15:USBDev_CDC_Control	16	static
+USBDev.c:114:15:USBDev_CDC_Receive	16	static
+USBDev.c:120:15:USBDev_CDC_TransmitCmplt	24	static
+USBDev.c:137:13:USBDev_Init	16	static
+USBDev.c:157:13:USBDev_DeInit	8	static
+USBDev.c:165:13:USBDev_Start	8	static
+USBDev.c:174:13:USBDev_Stop	8	static
+USBDev.c:182:13:USBDev_Transmit	16	static

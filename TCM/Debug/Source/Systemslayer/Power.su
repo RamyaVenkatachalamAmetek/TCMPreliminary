@@ -1,0 +1,7 @@
+Power.c:45:13:IsExtPowerPresent	8	static
+Power.c:56:13:Power_InitStage1	24	static
+Power.c:99:13:Power_InitStage2	16	static
+Power.c:110:13:Power_DeInit	16	static
+Power.c:123:13:Power_ResetDevice	8	static
+Power.c:132:13:Power_Down	8	static
+Power.c:146:13:Power_Up	8	static

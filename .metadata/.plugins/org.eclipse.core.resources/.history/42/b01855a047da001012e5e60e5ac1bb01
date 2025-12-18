@@ -1,0 +1,569 @@
+/**
+ **  @file Power.c
+ **  @brief Power management
+ **  @author PS, JZJ
+ **
+ **/
+
+/* Includes */
+#include "Power.h"
+#include "dI2C.h"
+#include "Error.h"
+
+/* Macros */
+
+/* Board mapping */
+
+/* PWR_EN_3V3 */
+#define PWR_PWR_EN_3V3_PORT (GPIOD)
+#define PWR_PWR_EN_3V3_PIN  (GPIO_PIN_9)
+/* PWR_EN_2V8 */
+#define PWR_PWR_EN_2V8_PORT (GPIOD)
+#define PWR_PWR_EN_2V8_PIN  (GPIO_PIN_10)
+/* PWR_MODE */
+#define PWR_PWR_MODE_PORT   (GPIOD)
+#define PWR_PWR_MODE_PIN    (GPIO_PIN_8)
+/* /EXT_PWR */
+#define PWR_nEXT_PWR_PORT   (GPIOE)
+#define PWR_nEXT_PWR_PIN    (GPIO_PIN_6)
+
+/* Use lookup table for battery profile */
+#undef USE_BAT_PROF_TABLE
+
+/* Types */
+
+/* Externs */
+
+/* Function Declarations */
+
+/* Global Variables */
+I2C_HandleTypeDef hPwrI2C;
+
+/* Static Variables */
+
+/* Voltage smoothing */
+#define VOLT_AVG_WINDOW (50) // 10sec
+static float32_t VoltSamples[VOLT_AVG_WINDOW] = {0};
+static float32_t VoltSum = 0.0;
+static float32_t VoltAvg = 0.0;
+static uint32_t VoltCurrOffset = 0;
+static bool VoltFirstPass = true;
+static bool VoltChrgState = false;
+
+/* SoC smoothing */
+#define LEVEL_AVG_WINDOW (50) // 10sec
+static uint32_t LevelSamples[LEVEL_AVG_WINDOW] = {0};
+static uint32_t LevelSum = 0.0;
+static uint32_t LevelAvg = 0.0;
+static uint32_t LevelCurrOffset = 0;
+static bool LevelFirstPass = true;
+static bool LevelChrgState = false;
+
+/* Private Functions */
+
+/* Round Up and Down */
+static inline uint32_t RoundUp(uint32_t Val)
+{
+    return (Val + 1);
+}
+static inline uint32_t RoundDown(uint32_t Val)
+{
+    return (Val - 1);
+}
+static inline uint32_t RoundUp5(uint32_t Val)
+{
+    return (5 * ((Val + 4) / 5));
+}
+static inline uint32_t RoundDown5(uint32_t Val)
+{
+    return (5 * (Val / 5));
+}
+static inline uint32_t RoundUp10(uint32_t Val)
+{
+    return (10 * ((Val + 9) / 10));
+}
+static inline uint32_t RoundDown10(uint32_t Val)
+{
+    return (10 * (Val / 10));
+}
+
+#ifdef USE_BAT_PROF_TABLE
+typedef struct {
+    float32_t Volts;
+    uint32_t Level;
+} VoltMap_t;
+
+/* This lookup table is wrong for current profile. Need to modify */
+/*
+ - Current profile -
+
+   CHARGING
+Voltage(V) SoC(%)
+ 3.345      0
+ 4.190     100
+
+  DISCHARGING
+Voltage(V) SoC(%)
+ 3.310      0
+ 4.140     100
+
+*/
+
+static VoltMap_t ChargeProfile[20] =
+{
+        {4.100,100},{4.080,95},{4.061,90},{4.041,85},{4.022,80},
+        {4.002,75},{3.983,70},{3.963,65},{3.944,60},{3.924,55},
+        {3.905,50},{3.885,45},{3.866,40},{3.846,35},{3.827,30},
+        {3.807,25},{3.788,20},{3.768,15},{3.748,10},{3.729,5}
+};
+
+static VoltMap_t DischargeProfile[20] =
+{
+        {3.868,100},{3.835,95},{3.803,90},{3.771,85},{3.739,80},
+        {3.706,75},{3.674,70},{3.642,65},{3.609,60},{3.577,55},
+        {3.545,50},{3.512,45},{3.480,40},{3.448,35},{3.416,30},
+        {3.383,25},{3.351,20},{3.319,15},{3.286,10},{3.254,5}
+};
+#endif
+
+/* Get /EXT_PWR status */
+static bool IsExtPowerPresent(void)
+{
+    if(GPIO_PIN_SET == PAL_GetIO(PWR_nEXT_PWR_PORT, PWR_nEXT_PWR_PIN))
+        return false;
+    else
+        return true;
+}
+
+/* Public Functions */
+
+/* Init - Stage1 */
+StdReturn_t Power_InitStage1(Pwr_Status_t *Status)
+{
+    StdReturn_t stdRet;
+
+    Power_DeInit(Status);
+
+    /* PWR_MODE - LTC3621 in Pulse skipping mode */
+    PAL_ResetIO(PWR_PWR_MODE_PORT, PWR_PWR_MODE_PIN);
+
+    /* 3V3 */
+    PAL_SetIO(PWR_PWR_EN_3V3_PORT, PWR_PWR_EN_3V3_PIN);
+    HRT_Delay(100);
+
+    /* Set control lines */
+#if 0
+    BQ241x_SetLowInCurrLimit();
+
+    BQ241x_SetChargeDisable();
+    BQ241x_DisableSLR();
+#endif
+    /* Settle */
+    HRT_Delay(100);
+    
+    /* I2C channel */
+    __HAL_RCC_I2C3_CLK_ENABLE();
+
+    hPwrI2C.Instance             = I2C3;
+    /* Clock - 100KHz, Clock HIGH - 4us, Clock LOW - 5us,
+     * Data Hold Time - 500ns, Data Setup Time - 1250ns  */
+    hPwrI2C.Init.Timing          = 0x30420F13;//10KHz --> 0x3042C3C7;
+    hPwrI2C.Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;
+    hPwrI2C.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+    hPwrI2C.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+    hPwrI2C.Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;
+
+    stdRet = dI2C_Init(&hPwrI2C);
+    if(stdRet != RET_OK)
+        return stdRet;
+
+    /* Settle */
+    HRT_Delay(100);
+
+    Status->LC_Present = 0;
+    Status->BQ_Present = 0;
+
+#if 0
+	if(RET_OK == LC709x_Init())
+	{
+		Status->LC_Present = 1;
+		Status->BQ_Present = 0;
+
+		Status->BattConnected = true;
+		Status->ChrgEnable = true;
+	}
+	else if(RET_OK == BQ27xxx_Init())
+	{
+		Status->BQ_Present = 1;
+		Status->LC_Present = 0;
+
+		Status->BattConnected = true;
+		Status->ChrgEnable = true;
+	}
+	else
+	{
+		/* Failure to communicate with fuel gauge may be due to a battery disconnection.
+		 * External supply may be powering the device */
+		Status->BattConnected = false;
+		Status->ChrgEnable = false;
+
+		return RET_HW_NOK;
+	}
+
+    stdRet = BQ241x_Init();
+    if (stdRet != RET_OK)
+    {
+    	Error_Handler(ERROR_BOOTUP_BATTERY);
+       	return stdRet;
+    }
+#endif
+    return RET_OK;
+}
+
+/* Init - Stage2 */
+StdReturn_t Power_InitStage2(Pwr_Status_t *Status)
+{
+    /* 2V8 */
+    PAL_SetIO(PWR_PWR_EN_2V8_PORT, PWR_PWR_EN_2V8_PIN);
+    HRT_Delay(100);
+
+    /* Start charging */
+   // if(Status->ChrgEnable)
+       // BQ241x_SetChargeEnable();
+    HRT_Delay(100);
+
+    /* Update initial RSoC */
+#if 0
+    BQ241x_Status(&Status->BQ241X);
+    VoltChrgState = LevelChrgState = Status->BQ241X.Charging;
+    Status->LC709X.BattLevel = 123;// Level is not stable - set an out-of-range value
+#endif
+    return RET_OK;
+}
+
+/* DeInit */
+StdReturn_t Power_DeInit(Pwr_Status_t *Status)
+{
+    /* 2V8 */
+    PAL_ResetIO(PWR_PWR_EN_2V8_PORT, PWR_PWR_EN_2V8_PIN);
+
+    /* 3V3 */
+    PAL_ResetIO(PWR_PWR_EN_3V3_PORT, PWR_PWR_EN_3V3_PIN);
+
+    HRT_Delay(100);
+    return RET_OK;
+}
+
+/* Reset */
+StdReturn_t Power_ResetDevice(void)
+{
+    /* Reset */
+    HAL_NVIC_SystemReset();
+
+    return RET_OK;
+}
+
+/* Power Down */
+StdReturn_t Power_Down(void)
+{
+    /* 2V8 */
+    PAL_ResetIO(PWR_PWR_EN_2V8_PORT, PWR_PWR_EN_2V8_PIN);
+    HRT_Delay(100);
+
+    /* 3V3 */
+    PAL_ResetIO(PWR_PWR_EN_3V3_PORT, PWR_PWR_EN_3V3_PIN);
+    HRT_Delay(100);
+
+    return RET_OK;
+}
+
+/* Power Up */
+StdReturn_t Power_Up(void)
+{
+    /* 3V3 */
+    PAL_SetIO(PWR_PWR_EN_3V3_PORT, PWR_PWR_EN_3V3_PIN);
+    HRT_Delay(100);
+
+    /* 2V8 */
+    PAL_SetIO(PWR_PWR_EN_2V8_PORT, PWR_PWR_EN_2V8_PIN);
+
+    return RET_OK;
+}
+
+/* Enable Charging */
+StdReturn_t Power_EnableCharging(void)
+{
+    BQ241x_SetChargeEnable();
+    return RET_OK;
+}
+
+/* Disable Charging */
+StdReturn_t Power_DisableCharging(void)
+{
+    BQ241x_SetChargeDisable();
+    return RET_OK;
+}
+
+/* Reset RSOC */
+StdReturn_t Power_InitRSOC(Pwr_Status_t *Status)
+{
+    /* ToDo: Power down before re-init */
+	if(Status->BQ_Present)
+		return BQ27xxx_Init();
+	if(Status->LC_Present)
+		return LC709x_Init();
+
+	return RET_HW_NOK;
+}
+
+/* Smoothen voltage */
+void Power_AvgBattVolts(Pwr_Status_t *Status)
+{
+    float32_t currVolt = 0;
+
+    if(Status->BQ_Present)
+    	currVolt = Status->BQ27xxx.BattVolts;
+    if(Status->LC_Present)
+    	currVolt = Status->LC709X.BattVolts;
+
+    /* Fast catchup */
+    if(VoltFirstPass)
+    {
+        VoltSum = VoltSum + currVolt;
+        VoltSamples[VoltCurrOffset++] = currVolt;
+        VoltAvg = VoltSum / VoltCurrOffset;
+        if(VoltCurrOffset >= VOLT_AVG_WINDOW)
+        {
+            VoltCurrOffset = 0;
+            VoltFirstPass = false;
+        }
+
+        /* Reset on state change */
+        if(VoltChrgState != Status->BQ241X.Charging)
+        {
+            VoltChrgState = Status->BQ241X.Charging;
+            VoltSum = 0.0;
+            VoltSamples[0] = 0.0;
+            VoltCurrOffset = 0;
+        }
+    }
+    else
+    {
+        /* Average */
+        VoltSum = VoltSum - VoltSamples[VoltCurrOffset] + currVolt;
+        VoltSamples[VoltCurrOffset++] = currVolt;
+        if(VoltCurrOffset >= VOLT_AVG_WINDOW)
+            VoltCurrOffset = 0;
+        VoltAvg = VoltSum / VOLT_AVG_WINDOW;
+
+        /* Reset on state change */
+        if(VoltChrgState != Status->BQ241X.Charging)
+        {
+            VoltChrgState = Status->BQ241X.Charging;
+            VoltSum = 0.0;
+            VoltSamples[0] = 0.0;
+            VoltCurrOffset = 0;
+            VoltFirstPass = true;
+            VoltAvg = currVolt;
+        }
+    }
+
+    if(Status->BQ_Present)
+    	Status->BQ27xxx.AvgVolts = VoltAvg;
+    if(Status->LC_Present)
+    	Status->LC709X.AvgVolts = VoltAvg;
+}
+
+/* Calculate SoC */
+void Power_CalcSoC(Pwr_Status_t *Status)
+{
+    float32_t currVolt = 0;
+    uint32_t currLevel = 0;
+
+    if(Status->LC_Present)
+    {
+    	currVolt = Status->LC709X.AvgVolts;
+
+		if(Status->BQ241X.Charging)
+		{
+
+	#ifdef USE_BAT_PROF_TABLE
+			for(uint32_t i = 0; i < 20; i++)
+			{
+				if(currVolt >= ChargeProfile[i].Volts)
+				{
+					currLevel = ChargeProfile[i].Level;
+					break;
+				}
+			}
+	#else
+	        if(currVolt <= 3.445)
+	        {
+	            currLevel = 0;
+	        }
+	        else if(currVolt >= 4.190)
+	        {
+	            currLevel = 100;
+	        }
+	        else
+	        {
+	            currLevel = (uint32_t)((currVolt - 3.445) / 0.00745);
+	        }
+
+	#endif
+
+		}
+		else
+		{ // Discharging
+
+	#ifdef USE_BAT_PROF_TABLE
+			for(uint32_t i = 0; i < 20; i++)
+			{
+				if(currVolt >= DischargeProfile[i].Volts)
+				{
+					currLevel = DischargeProfile[i].Level;
+					break;
+				}
+			}
+	#else
+	        if(currVolt <= 3.410)
+	        {
+	            currLevel = 0;
+	        }
+	        else if(currVolt >= 4.140)
+	        {
+	            currLevel = 100;
+	        }
+	        else
+	        {
+	            currLevel = (uint32_t)((currVolt - 3.410) / 0.0073);
+	        }
+
+	#endif
+		}
+
+		/* Smoothen Level */
+		/* Fast catchup */
+		if(LevelFirstPass)
+		{
+	        LevelSum = LevelSum + currLevel;
+	        LevelSamples[LevelCurrOffset++] = currLevel;
+	        LevelAvg = LevelSum / LevelCurrOffset;
+	        if(LevelCurrOffset >= LEVEL_AVG_WINDOW)
+	        {
+	            LevelCurrOffset = 0;
+	            LevelFirstPass = false;
+	            Status->LC709X.BattLevel = LevelAvg;
+	        }
+
+			/* Reset on state change */
+			if(LevelChrgState != Status->BQ241X.Charging)
+			{
+				LevelChrgState = Status->BQ241X.Charging;
+				LevelSum = 0;
+				LevelSamples[0] = 0;
+				LevelCurrOffset = 0;
+			}
+
+		}
+		else
+		{
+			/* Average */
+	        LevelSum = LevelSum - LevelSamples[LevelCurrOffset] + currLevel;
+	        LevelSamples[LevelCurrOffset++] = currLevel;
+	        if(LevelCurrOffset >= LEVEL_AVG_WINDOW)
+	            LevelCurrOffset = 0;
+	        LevelAvg = LevelSum / LEVEL_AVG_WINDOW;
+
+			/* Reset on state change */
+			if(LevelChrgState != Status->BQ241X.Charging)
+			{
+				LevelChrgState = Status->BQ241X.Charging;
+				LevelSum = 0;
+				LevelSamples[0] = 0;
+				LevelCurrOffset = 0;
+				LevelFirstPass = true;
+				LevelAvg = currLevel;
+			}
+		}
+
+		if(LevelFirstPass)
+		{ // Level is not stable - Set an out-of-range value
+	        Status->LC709X.BattLevel = 123;
+		}
+		else
+		{
+			if(Status->BQ241X.Charging)
+			{
+				if(LevelAvg < 100)
+					LevelAvg = RoundUp(LevelAvg);
+				if(LevelAvg > Status->LC709X.BattLevel)
+					Status->LC709X.BattLevel = LevelAvg;
+			}
+			else
+			{
+				if(LevelAvg > 0)
+					LevelAvg = RoundDown(LevelAvg);
+				if(LevelAvg < Status->LC709X.BattLevel)
+					Status->LC709X.BattLevel = LevelAvg;
+			}
+		}
+	}
+
+    if(Status->BQ_Present)
+    {
+		Status->BQ27xxx.BattLevel = getBattLevel();
+
+		/* Update state change */
+		if(LevelChrgState != Status->BQ241X.Charging)
+			LevelChrgState = Status->BQ241X.Charging;
+    }
+}
+
+void Power_DisableOTGmode()
+{
+	if(RET_OK != BQ241x_DisableOTG())
+	{
+		Error_Handler(ERROR_CM_COM);
+		return;
+	}
+	return;
+}
+
+StdReturn_t Power_BQGoldenDFI(Pwr_Status_t *Status)
+{
+
+	if(Status->BQ_Present)
+	{
+		if((RET_OK == BQ27xxx_GoldenDFItobeFlashed()) || (RET_OK == BQ27xxx_GoldenDFIcheckVerChange()))
+			return BQ27xxx_flashGoldenDFI();
+	}
+
+	return RET_NO_IMPL;
+}
+
+/* Update status */
+StdReturn_t Power_Status(Pwr_Status_t *Status)
+{
+    /* Update from lines */
+    Status->ExtPwr = IsExtPowerPresent();
+
+    /* Get charger status */
+    BQ241x_Status(&Status->BQ241X);
+
+    /* Get battery gauge status */
+    if(Status->LC_Present)
+    	LC709x_Status(&Status->LC709X);
+    if(Status->BQ_Present)
+    	BQ27xxx_Status(&Status->BQ27xxx);
+
+    /* Smoother voltage */
+    Power_AvgBattVolts(Status);
+
+    /* Calculate SoC */
+    Power_CalcSoC(Status);
+
+    return RET_OK;
+}
+
+/******************************** End of File *********************************/

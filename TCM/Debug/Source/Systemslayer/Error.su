@@ -1,0 +1,11 @@
+Error.c:52:13:Error_Log	16	static
+Error.c:63:6:Error_Handler_Init	8	static
+Error.c:71:6:Error_Handler	16	static
+Error.c:85:10:Error_GetCount	24	static
+Error.c:99:6:Error_Clear	24	static
+Error.c:124:14:Error_GetDesc	16	static
+Error.c:130:20:Error_GetLevel	16	static
+Error.c:137:10:ErrorLog_GetSize	4	static
+Error.c:143:13:ErrorLog_GetErrorCode	16	static
+Error.c:152:20:ErrorLog_GetErrorLevel	16	static
+Error.c:161:14:ErrorLog_GetErrorDesc	16	static

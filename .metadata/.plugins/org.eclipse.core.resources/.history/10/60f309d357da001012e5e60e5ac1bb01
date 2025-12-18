@@ -1,0 +1,343 @@
+/**
+ **  @file USBi.c
+ **  @brief USB Interface
+ **  @author JZJ
+ **
+ **/
+
+/* Includes */
+#include "PAL.h"
+//RV:#include "Tasks.h"
+#include "Error.h"
+
+#include "USBi.h"
+#include "USBDev.h"
+#include "System.h"
+
+//RV:#include "usbh_def.h"
+//RV:#include "usbh_core.h"
+
+/* Macros */
+
+
+/* Board mappings */
+/* ID */
+#define USBi_ID_PORT    (GPIOC)
+#define USBi_ID_PIN     (GPIO_PIN_3)
+/* /VCONN_FAULT */
+#define USBi_nVCONN_FAULT_PORT  (GPIOB)
+#define USBi_nVCONN_FAULT_PIN   (GPIO_PIN_2)
+/* OUT1 */
+#define USBi_OUT1_PORT  (GPIOA)
+#define USBi_OUT1_PIN   (GPIO_PIN_5)
+/* OUT2 */
+#define USBi_OUT2_PORT  (GPIOA)
+#define USBi_OUT2_PIN   (GPIO_PIN_10)
+
+/* Types */
+
+/* Externs */
+extern PCD_HandleTypeDef hpcd;
+extern HCD_HandleTypeDef hhcd;
+
+
+/* Function Declarations */
+
+/* Global Variables */
+
+/* Static Variables */
+/* Mode */
+static uint8_t USBi_Mode = USBi_MODE_UNKNOWN;
+
+/* Private Functions */
+
+/* Tx complete callback */
+static void USBi_TxCmplt(void)
+{
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	xSemaphoreGiveFromISR(COMUSBSem, &xHigherPriorityTaskWoken);
+	portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+/* RX callback */
+static void USBi_RxCB(uint8_t *Data, uint32_t Size)
+{
+    uint32_t bufLen = Size;
+    uint8_t *pData = Data;
+
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    for(uint32_t i = 0; i < bufLen; i++) {
+        if(pdFALSE == xQueueIsQueueFullFromISR(CmdUSBQ))
+            xQueueSendFromISR(CmdUSBQ, (void*)pData, &xHigherPriorityTaskWoken);
+        pData++;
+    }
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+/* Get DFP attach status */
+static bool USBi_GetDFPAttachStatus(void)
+{
+    if(GPIO_PIN_RESET == PAL_GetIO(USBi_ID_PORT, USBi_ID_PIN))
+        return true;
+    else
+        return false;
+}
+
+/* Get VCONN over current fault */
+static bool USBi_GetOverCurrentStatus(void)
+{
+    if(GPIO_PIN_RESET == PAL_GetIO(USBi_nVCONN_FAULT_PORT, USBi_nVCONN_FAULT_PIN))
+        return true;
+    else
+        return false;
+}
+
+/* Get current detection status */
+static uint8_t USBi_GetCurrentLevelStatus(void)
+{
+    if(GPIO_PIN_SET == PAL_GetIO(USBi_OUT1_PORT, USBi_OUT1_PIN))
+    {
+        if(GPIO_PIN_SET == PAL_GetIO(USBi_OUT2_PORT, USBi_OUT2_PIN))
+            return USBi_C_CURR_LVL_DEF_INA;
+        else
+            return USBi_C_CURR_LVL_DEF_ACT;
+    }
+    else
+    {
+        if(GPIO_PIN_SET == PAL_GetIO(USBi_OUT2_PORT, USBi_OUT2_PIN))
+            return USBi_C_CURR_LVL_MEDIUM;
+        else
+            return USBi_C_CURR_LVL_HIGH;
+    }
+}
+
+/* Public Functions */
+/* Start */
+StdReturn_t USBi_Start(void)
+{
+    StdReturn_t stdRet;
+
+    /* Supply valid */
+    __HAL_RCC_PWR_CLK_ENABLE();
+    HAL_PWREx_EnableVddUSB();
+    __HAL_RCC_PWR_CLK_DISABLE();
+
+    /* Clock */
+    __HAL_RCC_USB_OTG_FS_CLK_ENABLE();
+
+    /* Interrupt config */
+    PAL_NVIC_SetPriority(OTG_FS_IRQn, 5);
+    PAL_NVIC_EnableIRQ(OTG_FS_IRQn);
+
+#if 0
+    /* check if VBus is present */
+    if (Sys_IsUSBConnected()) {
+    	/* default USB device mode */
+    	stdRet = USBi_SetMode(USBi_MODE_DEVICE);
+        if(stdRet != RET_OK) {
+        	Error_Handler(ERROR_SETUP_USB_DEVICE);
+        	return stdRet;
+        }
+    } else {
+    	/* set as host to test for attached device */
+    	stdRet = USBi_SetMode(USBi_MODE_HOST);
+    	if(stdRet != RET_OK) {
+    	    Error_Handler(ERROR_SETUP_USB_HOST);
+    	    return stdRet;
+    	}
+    }
+#else
+    /* start device */
+    USBDev_Config_t usbdevConfig;
+    usbdevConfig.TxCmpltCB = USBi_TxCmplt;
+    usbdevConfig.ReceiveCB = USBi_RxCB;
+    stdRet = USBDev_Init(&usbdevConfig);
+    if(stdRet != RET_OK)
+        return stdRet;
+
+    stdRet = USBDev_Start();
+    if(stdRet != RET_OK)
+        return stdRet;
+#endif
+
+    return RET_OK;
+}
+
+/* Stop */
+StdReturn_t USBi_Stop(void)
+{
+    StdReturn_t stdRet;
+
+    stdRet = USBDev_Stop();
+    if(stdRet != RET_OK)
+        return stdRet;
+
+    PAL_NVIC_DisableIRQ(OTG_FS_IRQn);
+
+    __HAL_RCC_USB_OTG_FS_CLK_DISABLE();
+
+    return RET_OK;
+}
+
+/* Enable */
+StdReturn_t USBi_Enable(void)
+{
+    return RET_OK;
+}
+
+/* Disable */
+StdReturn_t USBi_Disable(void)
+{
+    return RET_OK;
+}
+
+/* TX */
+StdReturn_t USBi_Tx(uint8_t *Data, uint32_t Size)
+{
+#if 0 // Do not remove this - needed for Host integration
+    if(USBi_Mode == USBi_MODE_DEVICE) {
+        TxReady = false;
+        return USBDev_Transmit(Data, Size);
+    }
+    return RET_OK;
+#endif
+
+    return USBDev_Transmit(Data, Size);
+}
+
+
+/* Get status */
+StdReturn_t USBi_GetStatus(USBi_Status_t *Status)
+{
+    Status->DFPAttached = USBi_GetDFPAttachStatus();
+    Status->VConnFault = USBi_GetOverCurrentStatus();
+    Status->CurrLevel = USBi_GetCurrentLevelStatus();
+
+    return RET_OK;
+}
+
+/* Get Mode */
+uint8_t USBi_GetMode(void)
+{
+	return USBi_Mode;
+}
+
+/* Set Mode */
+static HRTime_t USBi_TickStart;
+StdReturn_t USBi_SetMode(uint8_t mode)
+{
+	StdReturn_t stdRet;
+
+	if (USBi_Mode == mode) return RET_OK;
+
+    if ((USBi_MODE_DEVICE == mode) || (USBi_MODE_UNKNOWN == mode)) {
+    	/* stop host */
+    	if (USBi_Mode == USBi_MODE_HOST)
+    		USBHost_Stop();
+
+    	/* set up BQ241x */
+    	stdRet = BQ241x_SetChargeVoltage(0x7A);
+    	if (stdRet != RET_OK)
+    		return stdRet;
+    	BQ241x_SetLowInCurrLimit();
+
+    	/* start device */
+    	USBDev_Config_t usbdevConfig;
+    	usbdevConfig.TxCmpltCB = USBi_TxCmplt;
+    	usbdevConfig.ReceiveCB = USBi_RxCB;
+    	stdRet = USBDev_Init(&usbdevConfig);
+    	if(stdRet != RET_OK)
+    		return stdRet;
+
+    	stdRet = USBDev_Start();
+    	if(stdRet != RET_OK)
+    		return stdRet;
+    } else if (USBi_MODE_HOST == mode) {
+    	/* stop device */
+    	if (USBi_Mode == USBi_MODE_DEVICE)
+    		USBDev_Stop();
+
+    	/* set up BQ241x */
+    	stdRet = BQ241x_SetChargeVoltage(0x7B);
+    	if (stdRet != RET_OK)
+    		return stdRet;
+    	BQ241x_SetHighInCurrLimit();
+
+		/* set timeout */
+		USBi_TickStart = HRT_GetTick();
+
+    	/* start host */
+    	stdRet = USBHost_Init();
+    	if(stdRet != RET_OK)
+    		return stdRet;
+
+    	stdRet = USBHost_Start();
+    	if(stdRet != RET_OK)
+    		return stdRet;
+    }
+
+	USBi_Mode = mode;
+
+	return RET_OK;
+}
+
+static bool USBi_CheckForAttachedDevice = false;
+void USBi_Process(void)
+{
+	StdReturn_t stdRet;
+	if (USBi_CheckForAttachedDevice) {
+		/* clear flag */
+		USBi_CheckForAttachedDevice = false;
+		/* switch to host mode */
+		stdRet = USBi_SetMode(USBi_MODE_HOST);
+		if (stdRet != RET_OK)
+			Error_Handler(ERROR_SETUP_USB_HOST);
+		return;
+	}
+
+    if (USBi_MODE_HOST == USBi_GetMode()) {
+    	/* process USBi host */
+    	USBH_Process(&USBHost);
+
+    	/* check if device is still connected */
+    	if (!USBHost.device.is_connected) {
+    		/* check attached device timeout */
+    		if (HRT_IsTimedOut(USBi_TickStart, 2000 * 1000)) {
+    			/* set timer for device detection */
+    			USBi_TickStart = HRT_GetTick();
+    			/* no device detected - switch back to device mode */
+    			stdRet = USBi_SetMode(USBi_MODE_DEVICE);
+    			if (stdRet != RET_OK)
+    				Error_Handler(ERROR_SETUP_USB_DEVICE);
+    		}
+    	}
+    }
+}
+
+/* INTR */
+void USBi_ISR(void)
+{
+#if 0
+    if ((USBi_MODE_DEVICE == USBi_Mode) || (USBi_MODE_UNKNOWN == USBi_Mode))
+		HAL_PCD_IRQHandler(&hpcd);
+	else
+		HAL_HCD_IRQHandler(&hhcd);
+
+	/* Sys_IsUSBConnected() may be false even when USB cable is connected,
+	 * at this point when the check is done */
+	/* check if VBus is present */
+	if (!Sys_IsUSBConnected()) {
+		if (USBi_MODE_DEVICE == USBi_Mode) {
+			if (HRT_IsTimedOut(USBi_TickStart, 2000 * 1000)) {
+				/* check for attached device */
+				USBi_CheckForAttachedDevice = true;
+			}
+		}
+	}
+#else
+	HAL_PCD_IRQHandler(&hpcd);
+#endif
+}
+
+
+/******************************** End of File *********************************/

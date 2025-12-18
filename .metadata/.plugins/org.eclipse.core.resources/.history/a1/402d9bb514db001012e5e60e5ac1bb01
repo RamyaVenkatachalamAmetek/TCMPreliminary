@@ -1,0 +1,80 @@
+/**
+ **  @file Error.h
+ **  @brief Error handling
+ **  @author JZJ
+ **
+ **/
+
+#ifndef _ERROR_H_
+#define _ERROR_H_
+
+/* Includes */
+
+/* Macros */
+
+/* Types */
+
+typedef enum {
+	ERROR_NONE,					// no error
+	ERROR_BOOTUP_CLOCK_INIT,	// error in clock initialization
+	ERROR_BOOTUP_MxA,			// error in MxA SPI initialization
+	ERROR_BOOTUP_SDC,			// error in SD card initialization
+	ERROR_BOOTUP_DISPLAY_LCD,	// error in Display initialization
+	ERROR_BOOTUP_DISPLAY_GLIB,	// error in GLib initialization
+	ERROR_BOOTUP_BATTERY,		// error in Battery initialization
+	ERROR_BOOTUP_USB,			// error in USB initialization
+	ERROR_TASK_CREATE,			// error in task creation
+	ERROR_TASK_STACK,		    // error task stack overflow
+	ERROR_BOOTUP_POWER_INIT1,	// error in power init stage 1
+	ERROR_BOOTUP_POWER_INIT2,	// error in power init state 2
+	ERROR_BOOTUP_RTC_INIT,		// error in RTC initialization
+	ERROR_MEMORY_LOAD_MxA,		// error in loading MxA config memory
+	ERROR_MEMORY_LOAD_DCFG,		// error in loading DFG config memory
+	ERROR_SETUP_USB_DEVICE,		// error in setting USB Device mode
+	ERROR_SETUP_USB_HOST,		// error in setting USB Host mode
+	ERROR_COMSTART_AxM1,		// error in AxM1 com initialization
+	ERROR_COMSTART_AxM2,		// error in AxM2 com initialization
+	ERROR_COMSTART_TCMi,		// error in TCMi com initialization
+	ERROR_CM_COM,	            // error in com with charge management ic
+	ERROR_FG_COM,	            // error in com with fuel gauge ic
+	ERROR_BOOTUP_WATCHDOG_INIT,	// error in Watchdog initialization
+	ERROR_DISP_MEM,             // warning - display memory usage
+	/* ADD NEW ERRORS HERE */
+	ERROR_N_ENUM,
+}errorCode_t;
+
+
+typedef enum {
+	LEVEL_INFO,				// no error - log info and continue
+	LEVEL_WARN,				// warning - log warning and continue
+	LEVEL_ERROR,			// error - log error and continue
+	LEVEL_FATAL,			// fatal level - halt system
+	LEVEL_N_ENUM
+} errorLevel_t;
+
+
+/* Function Prototypes */
+/* Error Handler Initialization */
+void Error_Handler_Init(void);
+/* Log error and halt/restart */
+void Error_Handler(uint32_t ErrNo);
+/* Get error count */
+uint32_t Error_GetCount(uint32_t ErrNo);
+/* Clear error */
+void Error_Clear(uint32_t ErrNo);
+/* Get error description */
+const char * Error_GetDesc(uint32_t ErrNo);
+/* Get error level */
+const errorLevel_t Error_GetLevel(uint32_t ErrNo);
+
+/* Get log size */
+uint32_t ErrorLog_GetSize(void);
+/* Get log error code based on index */
+errorCode_t ErrorLog_GetErrorCode(uint32_t index);
+/* Get log error description based on index */
+const char * ErrorLog_GetErrorDesc(uint32_t index);
+
+
+
+
+#endif /*** _ERROR_H_ ***/

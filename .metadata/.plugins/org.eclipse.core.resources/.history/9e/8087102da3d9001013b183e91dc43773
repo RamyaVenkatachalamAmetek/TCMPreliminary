@@ -1,0 +1,75 @@
+/**
+ **  @file Power.h
+ **  @brief Power management
+ **  @author PS, JZJ
+ **
+ **/
+
+#ifndef _POWER_H_
+#define _POWER_H_
+
+/* Includes */
+#include "PAL.h"
+//Rv:#include "BQ241x.h"
+//RV:#include "LC709x.h"
+//RV:#include "BQ27xxx.h"
+
+/* Macros */
+
+/* Battery status */
+#define BAT_STAT_READY      ((uint32_t)0x00) // Ready
+#define BAT_STAT_CHARGING   ((uint32_t)0x01) // Charging
+#define BAT_STAT_CHRGDONE   ((uint32_t)0x02) // Charging Done
+#define BAT_STAT_FAULT      ((uint32_t)0x03) // Fault
+
+/* Battery fault code */
+#define BAT_FAULT_NORMAL        ((uint32_t)0x00) // Normal
+#define BAT_FAULT_VBUS_OVP      ((uint32_t)0x01) // VBUS OVP
+#define BAT_FAULT_SLEEP         ((uint32_t)0x02) // Sleep mode
+#define BAT_FAULT_BAD_ADP       ((uint32_t)0x03) // Bad Adaptor or VBUS<VUVLO
+#define BAT_FAULT_OP_OVP        ((uint32_t)0x04) // Output OVP
+#define BAT_FAULT_THERM_SHUT    ((uint32_t)0x05) // Thermal shutdown
+#define BAT_FAULT_TIMER         ((uint32_t)0x06) // Timer fault
+#define BAT_FAULT_NO_BATT       ((uint32_t)0x07) // No battery
+
+
+/* Types */
+typedef struct {
+    bool ExtPwr;
+    bool ChrgEnable;
+    bool BattConnected;
+    bool AlarmTemp;
+    BQ241x_Status_t BQ241X;
+    LC709x_Status_t LC709X;
+    BQ27xxx_Status_t BQ27xxx;
+    bool LC_Present;
+    bool BQ_Present;
+} Pwr_Status_t;
+
+/* Function Prototypes */
+/* Init - Stage1 */
+StdReturn_t Power_InitStage1(Pwr_Status_t *Status);
+/* Init - Stage2 */
+StdReturn_t Power_InitStage2(Pwr_Status_t *Status);
+/* DeInit */
+StdReturn_t Power_DeInit(Pwr_Status_t *Status);
+/* Reset */
+StdReturn_t Power_ResetDevice(void);
+/* Power Down */
+StdReturn_t Power_Down(void);
+/* Power Up */
+StdReturn_t Power_Up(void);
+/* Enable Charging */
+StdReturn_t Power_EnableCharging(void);
+/* Disable Charging */
+StdReturn_t Power_DisableCharging(void);
+/* Reset RSOC */
+StdReturn_t Power_InitRSOC(Pwr_Status_t *Status);
+/* Disables BQ2414x OTG mode */
+void Power_DisableOTGmode(void);
+/* Check and flash Golden DFI */
+StdReturn_t Power_BQGoldenDFI(Pwr_Status_t *Status);
+/* Update status */
+StdReturn_t Power_Status(Pwr_Status_t *Status);
+
+#endif /*** _POWER_H_ ***/

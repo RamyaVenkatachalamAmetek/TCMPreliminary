@@ -1,0 +1,771 @@
+/**
+ **  @file System.c
+ **  @brief System Management
+ **  @author JZJ
+ **
+ **/
+ 
+/* Includes */
+#include "System.h"
+//RV:#include "Tasks.h"
+#include "Error.h"
+//RV:#include "Disp.h"
+//RV:#include "DispCom.h"
+
+#include "Power.h"
+#include "USBi.h"
+//RV:#include "dRTC.h"
+//RV:#include "IO.h"
+//RV:#include "MxA.h"
+//RV:#include "AxMi.h"
+//RV:#include "Test.h"
+//RV:#include "SDC.h"
+//RV:#include "CfgDev.h"
+//RV:#include "COM.h"
+//RV:#include "Watchdog.h"
+//RV:#include "Language.h"
+//RV:#include "Device.h"
+//RV:#include "SM.h"
+
+//#include "GoldenDev.h"
+
+/* Macros */
+
+/* States */
+typedef enum {
+	STATE_ON,
+	STATE_SLEEP,
+} SysState_t;
+
+/* Long press time */
+#define SYS_PWRKEY_LONGPRESS_TIME (1 * 1000 * 1000)
+
+/* Types */
+typedef struct {
+    bool StartUp;
+    uint32_t Time;
+    SysState_t State;
+    bool ReqReboot;
+    bool ReqSleep;
+    bool ReqShutdown;
+    bool ReqWakeup;
+    bool ReqBootloader;
+    uint32_t ReqTime;
+    bool TriggerOnVolt;
+    bool TriggerOnTemp;
+    uint32_t TriggerTime;
+    uint32_t LastActiveTime;
+    bool SettleOn;
+    uint32_t SettleStartTime;
+    uint32_t DischargeCnt;
+    bool WakeupOnExtPwr;
+    Pwr_Status_t PwrStat;
+    USBi_Status_t USBiStat;
+} System_t;
+
+/* Externs */
+
+/* Function Declarations */
+
+/* Global Variables */
+
+/* Static Variables */
+static System_t Sys;
+
+/* Private Functions */
+
+/* Set State */
+void SetState(SysState_t State)
+{
+	Sys.State = State;
+}
+
+/* Shutdown Mode */
+static void GoShutdown(bool SysRunning)
+{
+    if(SysRunning) {
+
+        /* Elevate my priority */
+        vTaskPrioritySet(NULL, TASKPRIO_MAX);
+
+        /* Suspend all other tasks except KEY and SYS */
+        vTaskSuspend(xDispTaskHandle);
+        vTaskSuspend(xDaqTaskHandle);
+        vTaskSuspend(xCfgTaskHandle);
+        vTaskSuspend(xComCmdUSBTaskHandle);
+        vTaskSuspend(xComCmdTCMTaskHandle);
+        vTaskSuspend(xComDataTaskHandle);
+        vTaskSuspend(xComEvtTCMTaskHandle);
+        vTaskSuspend(xComEvtUSBTaskHandle);
+        vTaskSuspend(xAxMHostTaskHandle);
+        vTaskSuspend(xAxM1RxTaskHandle);
+        vTaskSuspend(xAxM2RxTaskHandle);
+
+        /* Down display */
+        Disp_PwrDown();
+
+#if 0 /* JZJ - Needs hardware changes, which is not yet ready */
+        /* Check for Restart */								/* PN - #247 - Restart Error Fix, #658 - Power On/Off Fix*/
+        vTaskDelay(pdMS_TO_TICKS(1000));					/* SYS_PWRKEY_LONGPRESS_TIME */
+        if(GPIO_PIN_RESET == PAL_GetIO(GPIOA, GPIO_PIN_0))
+        	Power_ResetDevice();
+#endif
+
+        /* Down AxMs */
+        if (Device_IsDFS()) {
+        	AxM1_DisableRxTx();
+        	AxM1_PowerDown();
+        	AxM2_DisableRxTx();
+        	AxM2_PowerDown();
+        }
+
+        /* Down MxA */
+        MxA_PowerDown();
+
+        /* Down SDC */
+        SDC_PwrDown();
+    }
+
+#if 0 /* JZJ - Needs hardware changes, which is not yet ready */
+    /* Disable BQ2414x OTG mode */		/* PN - #349 Gauge Power Down Issue */
+    Sys_DisableOTGmode();
+#endif
+
+    /* Down power */
+    Power_Down();
+
+    /* Disable running interrupts */
+    PAL_NVIC_DisableIRQ(DMA1_Channel3_IRQn);
+    PAL_NVIC_DisableIRQ(DMA1_Channel2_IRQn);
+    PAL_NVIC_DisableIRQ(USART3_IRQn);
+    PAL_NVIC_DisableIRQ(LPUART1_IRQn);
+    PAL_NVIC_DisableIRQ(USART1_IRQn);
+    PAL_NVIC_DisableIRQ(OTG_FS_IRQn);
+    PAL_NVIC_DisableIRQ(TIM5_IRQn);
+    PAL_NVIC_DisableIRQ(TIM2_IRQn);
+
+    /* Platform specific shutdown */
+    PAL_PwrDown();
+
+    __HAL_RCC_PWR_CLK_ENABLE();
+    HAL_PWR_EnableBkUpAccess();
+
+    /* Clear all wake up flags */
+    __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+
+    /* Enable wakeup on PA0 (PWR key) and PE6 (EXT_PWR) */
+    HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1_LOW);
+    HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN3_LOW);
+
+    /* Indicate that system has entered shutdown mode */
+    RTC->BKP31R = 0xA5A5A5A5;
+
+    /* Enter shutdown mode */
+    HAL_PWREx_EnterSHUTDOWNMode();
+
+}
+
+/* Sleep mode */
+static void GoSleep(void)
+{
+    /* Elevate my priority */
+    vTaskPrioritySet(NULL, TASKPRIO_MAX);
+
+    /* Suspend tasks */
+    vTaskSuspend(xDaqTaskHandle);
+    vTaskSuspend(xCfgTaskHandle);
+
+    /* Down display */
+    Disp_SleepMode();
+
+    /* Down Test and MxA */
+    Test_SleepMode();
+    MxA_StopSampling();
+
+    /* Wait and unmount fs */
+    SM_SetReady(false);
+    HRT_Delay(100);
+    SDC_Unmount();
+
+    /* Down SDC */
+    HRT_Delay(100);
+    SDC_PwrDown();
+}
+
+/* Wakeup from sleep */
+static void GoWakeup(void)
+{
+    /* Up SDC */
+	SDC_PwrUp();
+	/* Wait and Mount fs */
+	HRT_Delay(100);
+	if (RET_OK != SDC_Mount())
+		SM_SetReady(false);
+	else
+		SM_SetReady(true);
+	HRT_Delay(100);
+
+    /* Up Test and MxA */
+    Test_SetCfgFromDevice();
+    if (Device_IsDFX()) {
+    	/* Do DFX specific load on wakeup */
+    	/* Nothing for now */
+    }
+    MxA_StartSampling();
+    Test_StartTask();
+
+    /* Up display */
+    Disp_SetCurrScr(DISP_SCR_SPLASH);
+    Disp_WakeUp();
+
+    /* Resume tasks */
+    vTaskResume(xCfgTaskHandle);
+    vTaskResume(xDaqTaskHandle);
+
+    /* Revert my priority */
+    vTaskPrioritySet(NULL, SYSTASK_PRIO);
+}
+
+/* Reboot */
+static void Reboot(void)
+{
+    /* May need proper shutdown here */
+    Power_ResetDevice();
+}
+
+/* Bootloader */
+static void JumpToBootloader(void)
+{
+    /* May need proper shutdown here */
+    PAL_ActivateBootloader();
+    Power_ResetDevice();
+}
+
+/* Charging enable/disable */
+static void Sys_ChrgEnable(bool Enable)
+{
+    if(Enable != Sys.PwrStat.ChrgEnable) {
+        Sys.PwrStat.ChrgEnable = Enable;
+        if(Enable)
+            Power_EnableCharging();
+        else
+            Power_DisableCharging();
+    }
+}
+
+/* Set Temperature Limit Alarm */
+static void Sys_SetAlarmBattTemp(bool Enable)
+{
+    Sys.PwrStat.AlarmTemp = Enable;
+}
+
+/* Handle keys */
+static void Sys_HandleKey(uint32_t Key, uint32_t Event)
+{
+    /* Set sleep/wakeup request */
+    if((Key == KEY_PWR) && (Event == KEY_EVT_PRESSED)) {
+        if(Sys_IsSleeping())
+            Sys.ReqWakeup = true;
+        else
+            Sys.ReqSleep = true;
+        Sys.ReqTime = HRT_GetTick();
+    }
+    /* Clear sleep request and handle backlight - for short presses */
+    if((Key == KEY_PWR) && (Event == KEY_EVT_RELEASED)) {
+        if(Sys.ReqSleep) {
+            Sys.ReqSleep = false;
+            if(Disp_IsDim())
+                Disp_TurnUpBacklight();
+            else
+                Disp_TurnDownBacklight();
+        }
+        Sys.ReqWakeup = false;
+    }
+}
+
+/* Handle ON state */
+static void SysStateON(void)
+{
+	bool chkForCharging = false;
+
+    /* Process sleep  and shutdown */
+    if(Sys.ReqSleep) {
+        if(HRT_IsTimedOut(Sys.ReqTime, SYS_PWRKEY_LONGPRESS_TIME)) {
+            Sys.ReqSleep = false;
+            if(Sys_IsCharging()) {
+            	GoSleep();
+            	SetState(STATE_SLEEP);
+            } else {
+            	Sys.ReqShutdown = true;
+            }
+            return;
+        }
+    }
+
+    /* Process Shutdown */
+    if(Sys.ReqShutdown) {
+        Sys.ReqShutdown = false;
+        GoShutdown(true);
+        return;
+    }
+
+    /* Process restart */
+    if(Sys.ReqReboot) {
+        Reboot();
+        return;
+    }
+
+    /* Process bootloader */
+    if(Sys.ReqBootloader) {
+        JumpToBootloader();
+        return;
+    }
+
+    /* Handle Alarms */
+
+    /* Battery Voltage */
+    float32_t curVolts = Sys_GetBattVoltage();
+
+    /* Battery is very low */
+    if(curVolts < BATT_VOLT_LOW) {
+
+    	/* Battery may be disconnected if volt is at this level */
+    	if(curVolts < BATT_VOLT_DISCONNECT) {
+    		Sys_SetBattConnected(false);
+    	} else {
+
+    		if(!Sys_IsBattConnected()) {
+    			/* Battery is re-connected. Allow settling */
+    			Sys_SetBattConnected(true);
+    			Sys.SettleOn = true;
+    			Sys.SettleStartTime = HRT_GetTick();
+    		}
+
+    		/* Check charge status only after settling */
+    		if(Sys.SettleOn) {
+    			if(HRT_IsTimedOut(Sys.SettleStartTime, 10 * 1000 * 1000)) { // 10 secs
+    				chkForCharging = true;
+    				Sys.SettleOn = false;
+    			}
+    		} else {
+    			chkForCharging = true;
+    		}
+
+    		/* Shutdown if battery is not charging */
+    		if(chkForCharging && Sys_IsBattConnected() && !Sys_IsCharging()) {
+    			if(!Sys.TriggerOnVolt) {
+    				Sys.TriggerOnVolt = true;
+    				Sys.TriggerTime = HRT_GetTick();
+    				char msg[50];
+    				snprintf(msg, sizeof(msg) - 1, "\n%s\n%s\n\n%s",
+							DF3_SYMBOL_WARNING,
+							Lang_GetStr(STR_MSG_BATTERY_LOW),
+							Lang_GetStr(STR_MSG_CONNECT_CHARGER));
+					DispCom_SetDispMsg(msg,  false, MSG_ERROR, 5);
+    			}
+    			if(HRT_IsTimedOut(Sys.TriggerTime, 5 * 1000 * 1000))
+    				Sys.ReqShutdown = true;
+    		} else {
+    			Sys.TriggerOnVolt = false;
+    		}
+    	}
+    } else {
+    	Sys.TriggerOnVolt = false;
+    	if(!Sys_IsBattConnected()) {
+    		/* Battery is re-connected. Allow for settling */
+    		Sys_SetBattConnected(true);
+    		Sys.SettleOn = true;
+    		Sys.SettleStartTime = HRT_GetTick();
+    	}
+    }
+
+    /* Battery Temperature */
+    float32_t curTemp = Sys_GetBattTemp();
+
+    /* Set Alarm when temperature is out of band */
+    if((curTemp < BATT_TEMP_CHRGOFF_MIN) || (curTemp > BATT_TEMP_CHRGOFF_MAX)) {
+        Sys_SetAlarmBattTemp(true);
+    } else {
+        /* Reset Alarm when temperature is within band */
+        if((curTemp >= BATT_TEMP_CHRGON_MIN) && (curTemp <= BATT_TEMP_CHRGON_MAX)) {
+        	Sys_SetAlarmBattTemp(false);
+        }
+    }
+    /* Enable / Disable charging on Temperature Alarm */
+    if(Sys_IsBattConnected()) {
+    	if(Sys_AlarmBattTemp())
+    		Sys_ChrgEnable(false);
+    	else
+    		Sys_ChrgEnable(true);
+    } else {
+    	Sys_ChrgEnable(false);
+    }
+
+    /* Shutdown when temperature is out of limits */
+    if((curTemp < BATT_TEMP_LOW_LVL) || (curTemp > BATT_TEMP_HIGH_LVL)) {
+        if(!Sys.TriggerOnTemp) {
+            Sys.TriggerOnTemp = true;
+            Sys.TriggerTime = HRT_GetTick();
+            char msg[50];
+            if(curTemp < BATT_TEMP_LOW_LVL) {
+            	snprintf(msg, sizeof(msg) - 1, "\n%s\n\n%s\n%s",
+						DF3_SYMBOL_WARNING,
+						Lang_GetStr(STR_MSG_TEMPERATURE_LOW),
+						Lang_GetStr(STR_MSG_SHUTTING_DOWN));
+                DispCom_SetDispMsg(msg,  false, MSG_ERROR, 5);
+            }
+            if(curTemp > BATT_TEMP_HIGH_LVL) {
+            	snprintf(msg, sizeof(msg) - 1, "\n%s\n\n%s\n%s",
+						DF3_SYMBOL_WARNING,
+						Lang_GetStr(STR_MSG_TEMPERATURE_HIGH),
+						Lang_GetStr(STR_MSG_SHUTTING_DOWN));
+				DispCom_SetDispMsg(msg,  false, MSG_ERROR, 5);
+            }
+        }
+        if(HRT_IsTimedOut(Sys.TriggerTime, 5 * 1000 * 1000))
+            Sys.ReqShutdown = true;
+    }
+
+    if(!Test_IsActive()) {
+    	 /* Handle auto dimming */
+		if(CfgDev_Get_AutoDimOn()) {
+			uint32_t autoDimTime = CfgDev_Get_AutoDimTime();
+			if((xTaskGetTickCount() - Sys.LastActiveTime) > (autoDimTime * 1000)) {
+				if(!Disp_IsDim())
+					Disp_TurnDownBacklight();
+			}
+		}
+		/* Handle auto shutdown */
+		if(CfgDev_Get_AutoShutOn()) {
+			uint32_t autoShutTime = CfgDev_Get_AutoShutTime();
+			if((xTaskGetTickCount() - Sys.LastActiveTime) > (autoShutTime * 60 * 1000)) {
+				Sys.ReqShutdown = true;
+				return;
+			}
+		}
+    }
+
+    /* Check for errors and notify applications */
+    if(ErrorLog_GetSize()) {
+        static uint32_t TempTimeStart = 0; // temp var
+        if((xTaskGetTickCount() - TempTimeStart) > 1000) { // 1 sec
+            TempTimeStart = xTaskGetTickCount();
+            xTaskNotify(xComEvtUSBTaskHandle, EVT_USB_BOOTERR, eSetValueWithOverwrite);
+        }
+    }
+
+}
+
+/* Handle SLEEP state */
+static void SysStateSLEEP(void)
+{
+	bool chkForCharging = false;
+
+	/* Process shutdown */
+	if(Sys.ReqShutdown) {
+		Sys.ReqShutdown = false;
+		GoShutdown(true);
+		return;
+	}
+
+	/* Process wakeup */
+	if(Sys.ReqWakeup) {
+		if(HRT_IsTimedOut(Sys.ReqTime, SYS_PWRKEY_LONGPRESS_TIME)) {
+			Sys.ReqWakeup = false;
+			GoWakeup();
+			SetState(STATE_ON);
+		}
+		return;
+	}
+
+#if 0 /* JZJ - Needs hardware changes, which is not yet ready */
+	/* PN - #247 - Restart Error Fix */
+	if(HRT_IsTimedOut(Sys.ReqTime, (SYS_PWRKEY_LONGPRESS_TIME*2)) && (GPIO_PIN_RESET == PAL_GetIO(GPIOA, GPIO_PIN_0)))
+		Reboot();
+#endif
+
+	/* Handle Alarms */
+
+	/* Battery Voltage */
+	float32_t curVolts = Sys_GetBattVoltage();
+
+	/* Battery is very low */
+	if(curVolts < BATT_VOLT_LOW) {
+
+		/* Battery may be disconnected if volt is at this level */
+		if(curVolts < BATT_VOLT_DISCONNECT) {
+			Sys_SetBattConnected(false);
+		} else {
+
+			if(!Sys_IsBattConnected()) {
+				/* Battery is re-connected. Allow settling */
+				Sys_SetBattConnected(true);
+				Sys.SettleOn = true;
+				Sys.SettleStartTime = HRT_GetTick();
+			}
+
+			/* Check charge status only after settling */
+			if(Sys.SettleOn) {
+				if(HRT_IsTimedOut(Sys.SettleStartTime, 10 * 1000 * 1000)) { // 10 secs
+					chkForCharging = true;
+					Sys.SettleOn = false;
+				}
+			} else {
+				chkForCharging = true;
+			}
+
+			/* Shutdown if battery is not charging */
+			if(chkForCharging && Sys_IsBattConnected() && !Sys_IsCharging()) {
+				Sys.ReqShutdown = true;
+			} else {
+				Sys.TriggerOnVolt = false;
+			}
+		}
+	} else {
+		Sys.TriggerOnVolt = false;
+		if(!Sys_IsBattConnected()) {
+			/* Battery is re-connected. Allow for settling */
+			Sys_SetBattConnected(true);
+			Sys.SettleOn = true;
+			Sys.SettleStartTime = HRT_GetTick();
+		}
+	}
+
+	/* Battery Temperature */
+	float32_t curTemp = Sys_GetBattTemp();
+
+	/* Set Alarm when temperature is out of band */
+	if((curTemp < BATT_TEMP_CHRGOFF_MIN) || (curTemp > BATT_TEMP_CHRGOFF_MAX)) {
+		Sys_SetAlarmBattTemp(true);
+	} else {
+		/* Reset Alarm when temperature is within band */
+		if((curTemp >= BATT_TEMP_CHRGON_MIN) && (curTemp <= BATT_TEMP_CHRGON_MAX)) {
+			Sys_SetAlarmBattTemp(false);
+		}
+	}
+	/* Enable / Disable charging on Temperature Alarm */
+	if(Sys_IsBattConnected()) {
+		if(Sys_AlarmBattTemp())
+			Sys_ChrgEnable(false);
+		else
+			Sys_ChrgEnable(true);
+	} else {
+		Sys_ChrgEnable(false);
+	}
+
+	/* Shutdown when temperature is out of limits */
+	if((curTemp < BATT_TEMP_LOW_LVL) || (curTemp > BATT_TEMP_HIGH_LVL)) {
+		Sys.ReqShutdown = true;
+	}
+
+	/* Handle sleep-but-not-charging */
+	if(!Sys_IsCharging()) {
+		if(++Sys.DischargeCnt > 5) // 1 sec
+			GoShutdown(true);
+	} else {
+		Sys.DischargeCnt = 0;
+	}
+
+}
+
+/* SYS Process */
+void SYS_Task(void *Args)
+{
+    TickType_t xLastWakeTime;
+
+    /* Set state */
+    SetState(STATE_ON);
+    if(Sys_GetWakeupOnExtPwr()) {
+    	/* Sleep screen, if powered up from shutdown */
+        Disp_SetCurrScr(DISP_SCR_SLEEP);
+        IO_Buzzer_ON(BUZZTYPE_SHORT_BEEP, 1);
+        SetState(STATE_SLEEP);
+    }
+
+    /* Register keymask */
+    KeyRegister_t keyReg;
+    keyReg.KeyMask = KEY_PWR;
+    keyReg.Notify = Sys_HandleKey;
+    IO_Key_Register(KEYREG_MOD_SYS, &keyReg);
+
+    Sys.LastActiveTime = xTaskGetTickCount();
+
+    /* Wait till Config notifies completion */
+	uint32_t notifiedValue;
+	xTaskNotifyWait(UINT_MIN, UINT_MAX, &notifiedValue, portMAX_DELAY);
+
+    while(1) {
+
+    	xLastWakeTime = xTaskGetTickCount();
+
+    	Power_Status(&Sys.PwrStat);
+    	/* Temporarily disable USB host interfaces -
+    	    USBi_GetStatus(&Sys.USBiStat);
+    	    USBi_Process();
+    	 */
+    	Sys.Time = Sys_GetTime();
+
+    	switch(Sys.State) {
+
+    	case STATE_ON:
+    		SysStateON();
+    		break;
+
+    	case STATE_SLEEP:
+    		SysStateSLEEP();
+    		break;
+
+    	default:
+    		break;
+    	}
+
+    	vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(200));
+    	WD_Status(WD_SYSTASK, WD_ALIVE);
+    }
+}
+
+
+static void SYSTask_Create(void)
+{
+    static StaticTask_t xSysTaskTCB;
+    static StackType_t uxSysTaskStack[SYSTASK_STACKSZ];
+
+    xSysTaskHandle = xTaskCreateStatic(SYS_Task,
+                                        SYSTASK_NAME,
+                                        SYSTASK_STACKSZ,
+                                        NULL,
+                                        SYSTASK_PRIO,
+                                        uxSysTaskStack,
+                                        &xSysTaskTCB);
+    if(xSysTaskHandle == NULL)
+        Error_Handler(ERROR_TASK_CREATE);
+}
+
+/* Public Functions */
+/* Init - Stage1 */
+bool Sys_InitStage1(void)
+{
+    if(RET_OK != Power_InitStage1(&Sys.PwrStat)) {
+    	Error_Handler(ERROR_BOOTUP_POWER_INIT1);
+        Sys.StartUp = false;
+        return false;
+    }
+
+    Sys.StartUp = true;
+    return true;
+}
+
+/* Init - Stage2 */
+bool Sys_InitStage2(void)
+{
+    if(!Sys.StartUp)
+        return false;
+
+    if(RET_OK != Power_InitStage2(&Sys.PwrStat)) {
+    	Error_Handler(ERROR_BOOTUP_POWER_INIT2);
+        Sys.StartUp = false;
+        return false;
+    }
+/*RV:
+    if(RET_OK != RTC_Init()) {
+    	Error_Handler(ERROR_BOOTUP_RTC_INIT);
+        Sys.StartUp = false;
+        return false;
+    }
+*/
+    Sys.ReqReboot = false;
+    Sys.ReqSleep = false;
+    Sys.ReqShutdown = false;
+    Sys.ReqWakeup = false;
+    Sys.ReqBootloader = false;
+    Sys.TriggerOnVolt = false;
+    Sys.TriggerOnTemp = false;
+    Sys.SettleOn = false;
+    Sys.DischargeCnt = 0;
+    Sys.PwrStat.ExtPwr = false;
+
+    SYSTask_Create();
+
+    Sys.StartUp = true;
+    return true;
+}
+
+/* Set reboot request */
+bool Sys_SetReqReboot(void)
+{
+	if(Sys.State != STATE_ON)
+		return false;
+    Sys.ReqReboot = true;
+    return true;
+}
+
+/* Set sleep request */
+bool Sys_SetReqSleep(void)
+{
+	if(Sys.State != STATE_ON)
+		return false;
+    Sys.ReqSleep = true;
+    return true;
+}
+
+/* Is sleeping */
+bool Sys_IsSleeping(void)
+{
+	if(Sys.State == STATE_SLEEP)
+		return true;
+	return false;
+}
+
+/* Set bootloader request */
+bool Sys_SetReqBootloader(void)
+{
+	if(Sys.State != STATE_ON)
+		return false;
+    Sys.ReqBootloader = true;
+    return true;
+}
+
+/* Get Time */
+uint32_t Sys_GetTime(void)
+{
+    uint32_t time = 0;
+    RTC_GetTime(&time);
+    return time;
+}
+
+/* Set Time */
+bool Sys_SetTime(uint32_t SysTime)
+{
+    if(RET_OK != RTC_SetTime(SysTime))
+        return false;
+    return true;
+}
+
+/* Set comm active */
+void Sys_SetCommActive(void)
+{
+    Sys.LastActiveTime = xTaskGetTickCount();
+    if(Disp_IsDim())
+        Disp_TurnUpBacklight();
+}
+
+/* Shutdown */
+void Sys_Shutdown(bool IsRunning)
+{
+	GoShutdown(IsRunning);
+}
+
+/* Set wakeup from EXT_PWR */
+void Sys_SetWakeupOnExtPwr(bool Wakeup)
+{
+    Sys.WakeupOnExtPwr = Wakeup;
+}
+
+/* Get EXT_PWR wakeup status */
+bool Sys_GetWakeupOnExtPwr(void)
+{
+    return Sys.WakeupOnExtPwr;
+}
+
+
+/******************************** End of File *********************************/

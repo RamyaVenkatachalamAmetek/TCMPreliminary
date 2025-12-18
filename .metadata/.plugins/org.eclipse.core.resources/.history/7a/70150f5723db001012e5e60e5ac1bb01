@@ -1,0 +1,920 @@
+/**
+ **  @file PAL.c
+ **  @brief Platform Abstraction Layer
+ **  @author JZJ
+ **
+ **/
+
+/* Includes */
+#include "PAL.h"
+#include "Error.h"
+
+/* Macros */
+/* Board mapping */
+#define BOOT0_PORT  (GPIOH)
+#define BOOT0_PIN   (GPIO_PIN_3)
+
+/* Types */
+
+/* Externs */
+
+/* Function Declarations */
+
+/* Global Variables */
+
+/* Static Variables */
+
+/* Private Functions */
+
+/* Set Clocks */
+static void PAL_ConfigClocks(void)
+{
+
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+    RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+    
+    /* Enable voltage range 1 boost mode for frequency above 80 Mhz */
+    __HAL_RCC_PWR_CLK_ENABLE();
+    HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST);
+    __HAL_RCC_PWR_CLK_DISABLE();
+    
+    /* Enable HSI48 */
+    RCC_OscInitStruct.OscillatorType      = RCC_OSCILLATORTYPE_HSI48;
+    RCC_OscInitStruct.HSI48State          = RCC_HSI48_ON;
+    RCC_OscInitStruct.PLL.PLLState        = RCC_PLL_OFF;
+    if(HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+        Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+
+    /* Enable HSI16 */
+    RCC_OscInitStruct.OscillatorType        = RCC_OSCILLATORTYPE_HSI;
+    RCC_OscInitStruct.HSIState              = RCC_HSI_ON;
+    RCC_OscInitStruct.HSICalibrationValue   = RCC_HSICALIBRATION_DEFAULT;
+    RCC_OscInitStruct.PLL.PLLState          = RCC_PLL_OFF;
+    if(HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+        Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+
+    /* Enable LSE */
+    RCC_OscInitStruct.OscillatorType      = RCC_OSCILLATORTYPE_LSE;
+	RCC_OscInitStruct.LSEState        	  = RCC_LSE_ON;
+	RCC_OscInitStruct.PLL.PLLState        = RCC_PLL_OFF;
+	if(HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+		Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+
+    /* Enable MSI Oscillator and activate PLL with MSI as source */
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
+    RCC_OscInitStruct.MSIState = RCC_MSI_ON;
+    RCC_OscInitStruct.MSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
+    RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
+    RCC_OscInitStruct.PLL.PLLM = 1;
+    RCC_OscInitStruct.PLL.PLLN = 60;
+    RCC_OscInitStruct.PLL.PLLR = 2;
+    RCC_OscInitStruct.PLL.PLLQ = 2;
+    RCC_OscInitStruct.PLL.PLLP = 7;
+    if(HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+        Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+    
+    /* Select HSI48 as USB clock source */
+    /* SDMMC shares the clock with USB */
+    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USB;
+    PeriphClkInitStruct.UsbClockSelection = RCC_USBCLKSOURCE_HSI48;
+    if(HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+        Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+
+    /* Select HSI16 as I2C1 clock source */
+    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2C1;
+    PeriphClkInitStruct.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
+    if(HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+        Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+
+    /* Select HSI16 as I2C2 clock source */
+    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2C2;
+    PeriphClkInitStruct.I2c2ClockSelection  = RCC_I2C2CLKSOURCE_HSI;
+    if(HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+    	Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+
+	/* Select PCLK1 as USART2 clock source */
+	PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USART2;
+	PeriphClkInitStruct.RTCClockSelection = RCC_USART2CLKSOURCE_PCLK1;
+	if(HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+	    Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+
+	/* Select PCLK1 as UART4 clock source */
+	PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_UART4;
+	PeriphClkInitStruct.RTCClockSelection = RCC_UART4CLKSOURCE_PCLK2;
+	if(HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+		Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+
+    /* To avoid undershoot due to maximum frequency, select PLL as system clock source */
+    /* with AHB prescaler divider 2 as first step */
+    RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
+    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+    if(HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
+        Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+    
+    /* AHB prescaler divider at 1 as second step */
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK;
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+    if(HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+        Error_Handler(ERROR_BOOTUP_CLOCK_INIT);
+#if 0
+     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+      RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+      RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+
+      /** Configure the main internal regulator output voltage
+      */
+      if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
+      {
+       // Error_Handler();
+      }
+      /** Initializes the RCC Oscillators according to the specified parameters
+      * in the RCC_OscInitTypeDef structure.
+      */
+      RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_MSI;
+      RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+      RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+      RCC_OscInitStruct.MSIState = RCC_MSI_ON;
+      RCC_OscInitStruct.MSICalibrationValue = 0;
+      RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
+      RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+      if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+      {
+        //Error_Handler();
+      }
+      /** Initializes the CPU, AHB and APB buses clocks
+      */
+      RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                                  |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+      RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+      RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+      RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+      RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+      if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+      {
+       // Error_Handler();
+      }
+      PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_UART4
+                                  |RCC_PERIPHCLK_I2C1|RCC_PERIPHCLK_I2C2
+                                  |RCC_PERIPHCLK_USB;
+      PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
+      PeriphClkInit.Uart4ClockSelection = RCC_UART4CLKSOURCE_PCLK1;
+      PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_PCLK1;
+      PeriphClkInit.I2c2ClockSelection = RCC_I2C2CLKSOURCE_PCLK1;
+      PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLLSAI1;
+      PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_MSI;
+      PeriphClkInit.PLLSAI1.PLLSAI1M = 1;
+      PeriphClkInit.PLLSAI1.PLLSAI1N = 24;
+      PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV2;
+      PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV2;
+      PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV2;
+      PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK;
+      if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+      {
+       // Error_Handler();
+      }
+      /** Enable MSI Auto calibration
+      */
+      HAL_RCCEx_EnableMSIPLLMode();
+#endif
+}
+
+/* Configure all GPIO as analog to reduce current consumption on non used IOs */
+void PAL_SetGPIODefaults(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct;
+    
+    /* Enable GPIOs clock */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    __HAL_RCC_GPIOF_CLK_ENABLE();
+    __HAL_RCC_GPIOG_CLK_ENABLE();
+    __HAL_RCC_GPIOH_CLK_ENABLE();
+
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pin = (GPIO_PIN_All & (~GPIO_PIN_13) & (~GPIO_PIN_14) & (~GPIO_PIN_15));
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    GPIO_InitStruct.Pin = (GPIO_PIN_All & (~GPIO_PIN_3) & (~GPIO_PIN_4));
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    GPIO_InitStruct.Pin = GPIO_PIN_All;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOI, &GPIO_InitStruct);
+
+    /* Disable GPIOs clock */
+    __HAL_RCC_GPIOA_CLK_DISABLE();
+    __HAL_RCC_GPIOC_CLK_DISABLE();
+    __HAL_RCC_GPIOC_CLK_DISABLE();
+    __HAL_RCC_GPIOD_CLK_DISABLE();
+    __HAL_RCC_GPIOE_CLK_DISABLE();
+    __HAL_RCC_GPIOF_CLK_DISABLE();
+    __HAL_RCC_GPIOG_CLK_DISABLE();
+    __HAL_RCC_GPIOH_CLK_DISABLE();
+    __HAL_RCC_GPIOI_CLK_DISABLE();
+}
+
+void PAL_ConfigGPIOStage1(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct;
+
+    /* Clocks */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+
+    /** Main **/
+
+    /* PD9 - PWR_EN_3V3 | PD10 - PWR_EN_2V8 */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_9 | GPIO_PIN_10;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_9, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_10, GPIO_PIN_RESET);
+
+    /* PB1 - USB_PWR_EN */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_1;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+
+    /* PD12 - /CHRG_EN */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_12;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLUP;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET);
+
+    /* PD8 - PWR_MODE | PD13 - SLRST */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_8 | GPIO_PIN_13;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_8, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET);
+
+    /* PC0 - SCL, PC1 - SDA */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin         = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2;
+    GPIO_InitStruct.Mode        = GPIO_MODE_AF_OD;
+    GPIO_InitStruct.Pull        = GPIO_PULLUP;
+    GPIO_InitStruct.Speed       = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate   = GPIO_AF4_I2C3;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /* PA0 - BTN_POWER */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_0;
+    GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /* PE6 - /EXT_PWR */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_6;
+    GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+
+      /*Configure GPIO pin Output Level */
+      //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET);
+}
+
+void PAL_ConfigGPIOStage2(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct;
+    
+    /* Clocks */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    __HAL_RCC_GPIOH_CLK_ENABLE();
+    
+    /** Main **/
+
+    /* PD3 - CHRG_STATUS */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_3;
+    GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+    /* PC2 - ALARMB */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_2;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+    
+    /** Keypad **/
+
+    /* PA4 - BTN_SETTINGS */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_4;
+    GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /* PE0 - BTN_LEFT | PE1 - BTN_UP | PE2 - BTN_CENTER |
+     * PE3 - BTN_DOWN | PE4 - BTN_RIGHT | PE5 - BTN_ZERO */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 |
+                                GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5;
+    GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+    /* PE11 - BTN_F1 | PE12 - BTN_F2 | PE13 - BTN_F3 |
+     * PE14 - BTN_F4 | PE15 - BTN_BACK */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+    GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+    /** Buzzer **/
+
+    /* PB5 - BUZZER */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_5;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /** LCD **/
+    
+    /* PC7 - DISP_NRST */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_7;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLUP;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+    /* PD4 - DISP_NOE | PD7 - DISP_NCE | PD5 - DISP_NWE | PD11 - DISP_DC */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin         = GPIO_PIN_4 | GPIO_PIN_7 | GPIO_PIN_5 | GPIO_PIN_11;
+    GPIO_InitStruct.Mode        = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull        = GPIO_NOPULL;
+    GPIO_InitStruct.Speed       = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate   = GPIO_AF12_FMC;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct); 
+    /* PD14 - DISP_D0 | PD15 - DISP_D1 | PD0 - DISP_D2 | PD1 - DISP_D3 */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin         = GPIO_PIN_14 | GPIO_PIN_15 | GPIO_PIN_0 | GPIO_PIN_1;
+    GPIO_InitStruct.Mode        = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull        = GPIO_NOPULL;
+    GPIO_InitStruct.Speed       = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate   = GPIO_AF12_FMC;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);    
+    /* PE7 - DISP_D4 | PE8 - DISP_D5 | PE9 - DISP_D6 | PE10 - DISP_D7 */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin         = GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10;
+    GPIO_InitStruct.Mode        = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull        = GPIO_NOPULL;
+    GPIO_InitStruct.Speed       = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate   = GPIO_AF12_FMC;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+    /* PC6 - DISP_BL */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin         = GPIO_PIN_6;
+    GPIO_InitStruct.Mode        = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull        = GPIO_NOPULL;
+    GPIO_InitStruct.Speed       = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate   = GPIO_AF2_TIM3;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /** SDC **/
+
+    /* PB0 - SD_PWR_EN */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_0;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /* PC8 - SDIO_D0 | PC9 - SDIO_D1 | PC10 - SDIO_D2 | PC11 - SDIO_D3 */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin         = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11;
+    GPIO_InitStruct.Mode        = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull        = GPIO_PULLUP;
+    GPIO_InitStruct.Speed       = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate   = GPIO_AF12_SDMMC1;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /* PC12 - SDIO_CLK */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin         = GPIO_PIN_12;
+    GPIO_InitStruct.Mode        = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull        = GPIO_PULLUP;
+    GPIO_InitStruct.Speed       = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate   = GPIO_AF12_SDMMC1;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /* PD2 - SDIO_CMD */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin         = GPIO_PIN_2;
+    GPIO_InitStruct.Mode        = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull        = GPIO_PULLUP;
+    GPIO_InitStruct.Speed       = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate   = GPIO_AF12_SDMMC1;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+    /** MxA **/
+    
+    /* PB8 - PWR_EN | PB9 - CS_ADC | PB12 - CS_MEM */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_12;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLUP;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    /* Level PWR_EN, CS_ADC, CS_MEM */
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);    
+    /* PB13 - SCLK*/
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin       = GPIO_PIN_13;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_PULLUP;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    /* PB14 - SDO */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin       = GPIO_PIN_14;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_PULLUP;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    /* PB15 - SDI */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin       = GPIO_PIN_15;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_PULLUP;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    
+    /** AxM **/
+
+    /* PD6 - PWR_EN_AxM */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_6;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+    /* PA8 - AxM1_RXE */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_8;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLUP;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    /* PA9 - AxM1_TXE */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_9;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    /* PB11 - AxM1_TX */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin       = GPIO_PIN_11;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_PULLUP;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF8_LPUART1;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    /* PB10 - AxM1_RX */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin       = GPIO_PIN_10;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF8_LPUART1;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /* PA6 - AxM2_RXE */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_6;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLUP;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    /* PA7 - AxM2_TXE */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_7;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    /* PB6 - AxM2_TX */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin       = GPIO_PIN_6;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_PULLUP;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    /* PB7 - AxM2_RX */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin       = GPIO_PIN_7;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /* PWR_EN_AxM */
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
+    /* AxM1_RXE */
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);
+    /* AxM1_TXE */
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+    /* AxM2_RXE */
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+    /* AxM2_TXE */
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+
+
+    /** TCM **/
+
+    /* PC4 - TCM_TX */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin       = GPIO_PIN_4;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_PULLUP;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+    /* PC5 - TCM_RX */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin       = GPIO_PIN_5;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /** USB **/
+
+    /* PC3 - ID */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_3;
+    GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /* PB2 - /VCONN_FAULT */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_2;
+    GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /* PA5 - OUT1 | PA10 - OUT2 */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_5 | GPIO_PIN_10;
+    GPIO_InitStruct.Mode    = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /* PA11 - D-USB | PA12 - D+USB */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin       = GPIO_PIN_11 | GPIO_PIN_12;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull      = GPIO_NOPULL;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF10_OTG_FS;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /** Bootloader **/
+
+    /* PH3 - BOOT0 */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_3;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
+
+    /** TEST PIN **/
+
+    /* PC15 - test pin 1 */
+    memset(&GPIO_InitStruct, 0, sizeof(GPIO_InitStruct));
+    GPIO_InitStruct.Pin     = GPIO_PIN_15;
+    GPIO_InitStruct.Mode    = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull    = GPIO_NOPULL;
+    GPIO_InitStruct.Speed   = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+}
+
+/* Public Functions */
+
+#ifndef NDEBUG // Remove later
+RCC_OscInitTypeDef dRCC_OscInitStruct;
+RCC_ClkInitTypeDef dRCC_ClkInitStruct;
+uint32_t dFLatency;
+struct dClockFreqs_t {
+    uint32_t SysClockFreq;
+    uint32_t HCLKFreq;
+    uint32_t PCLK1Freq;
+    uint32_t PCLK2Freq;
+} dClockFreqs;
+#endif
+
+/* Init Platform - Stage1 */
+void PAL_InitStage1(void)
+{
+    /* Initialise ST HAL */
+    HAL_Init();
+
+    /* Configure system and peripheral clocks */
+    PAL_ConfigClocks();
+
+#ifndef NDEBUG
+    HAL_RCC_GetOscConfig(&dRCC_OscInitStruct);
+    HAL_RCC_GetClockConfig(&dRCC_ClkInitStruct, &dFLatency);
+    dClockFreqs.SysClockFreq = HAL_RCC_GetSysClockFreq();
+    dClockFreqs.HCLKFreq = HAL_RCC_GetHCLKFreq();
+    dClockFreqs.PCLK1Freq = HAL_RCC_GetPCLK1Freq();
+    dClockFreqs.PCLK2Freq = HAL_RCC_GetPCLK2Freq();
+#endif
+
+    /* Configure all GPIOs as Analog to reduce power consumption */
+    PAL_SetGPIODefaults();
+
+    /* Configure GPIOs - only power management */
+    PAL_ConfigGPIOStage1();
+
+    /* Configure HR Timer */
+    HRT_Init();
+}
+
+/* Init Platform - Stage2 */
+void PAL_InitStage2(void)
+{
+    /* Configure rest of the GPIOs */
+    PAL_ConfigGPIOStage2();
+}
+
+/* Configure GPIO for shutdown */
+void PAL_PwrDown(void)
+{
+
+
+    /* Set Pullup/Pulldown before shutdown */
+    __HAL_RCC_PWR_CLK_ENABLE();
+
+    /* PD9 - PWR_EN_3V3 | PD10 - PWR_EN_2V8 */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_9);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_10);
+    /* PB1 - USB_PWR_EN */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_1);
+    /* PD12 - /CHRG_EN */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_12);
+    /* PD8 - PWR_MODE | PD13 - SLRST */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_8);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_13);
+    /* PC0 - SCL, PC1 - SDA */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_0);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_1);
+
+    /** Main **/
+    /* PE6 - /EXT_PWR */
+    HAL_PWREx_EnableGPIOPullUp(PWR_GPIO_E, PWR_GPIO_BIT_6);
+    /* PD3 - CHRG_STATUS */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_3);
+    /* PC2 - ALARMB */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_2);
+
+    /** Keypad **/
+    /* PA0 - BTN_POWER | PA4 - BTN_SETTINGS */
+    HAL_PWREx_EnableGPIOPullUp(PWR_GPIO_A, PWR_GPIO_BIT_0);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_A, PWR_GPIO_BIT_4);
+    /* PE0 - BTN_LEFT | PE1 - BTN_UP | PE2 - BTN_CENTER |
+     * PE3 - BTN_DOWN | PE4 - BTN_RIGHT | PE5 - BTN_ZERO */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_0);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_1);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_2);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_3);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_4);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_5);
+    /* PE11 - BTN_F1 | PE12 - BTN_F2 | PE13 - BTN_F3 |
+     * PE14 - BTN_F4 | PE15 - BTN_BACK */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_11);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_12);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_13);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_14);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_15);
+
+    /** Buzzer **/
+    /* PB5 - BUZZER */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_5);
+
+    /** LCD **/
+    /* PC7 - DISP_NRST */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_7);
+    /* PD4 - DISP_NOE | PD7 - DISP_NCE | PD5 - DISP_NWE | PD11 - DISP_DC */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_4);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_7);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_5);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_11);
+    /* PD14 - DISP_D0 | PD15 - DISP_D1 | PD0 - DISP_D2 | PD1 - DISP_D3 */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_14);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_15);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_0);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_1);
+    /* PE7 - DISP_D4 | PE8 - DISP_D5 | PE9 - DISP_D6 | PE10 - DISP_D7 */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_7);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_8);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_9);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_E, PWR_GPIO_BIT_10);
+    /* PC6 - DISP_BL */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_6);
+
+    /** SDC **/
+    /* PB0 - SD_PWR_EN */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_0);
+    /* PC8 - SDIO_D0 | PC9 - SDIO_D1 | PC10 - SDIO_D2 | PC11 - SDIO_D3 */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_8);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_9);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_10);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_11);
+    /* PC12 - SDIO_CLK */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_12);
+    /* PD2 - SDIO_CMD */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_2);
+
+    /** MxA **/
+    /* PB8 - PWR_EN | PB9 - CS_ADC | PB12 - CS_MEM */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_8);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_9);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_12);
+    /* PB13 - SCLK*/
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_13);
+    /* PB14 - SDO */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_14);
+    /* PB15 - SDI */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_15);
+
+    /** AxM **/
+    /* PD6 - PWR_EN_AxM */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_D, PWR_GPIO_BIT_6);
+    /* PA8 - AxM1_RXE */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_A, PWR_GPIO_BIT_8);
+    /* PA9 - AxM1_TXE */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_A, PWR_GPIO_BIT_9);
+    /* PB11 - AxM1_TX */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_11);
+    /* PB10 - AxM1_RX */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_10);
+    /* PA6 - AxM2_RXE */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_A, PWR_GPIO_BIT_6);
+    /* PA7 - AxM2_TXE */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_A, PWR_GPIO_BIT_7);
+    /* PB6 - AxM2_TX */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_6);
+    /* PB7 - AxM2_RX */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_7);
+
+    /** TCM **/
+    /* PC4 - TCM_TX */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_4);
+    /* PC5 - TCM_RX */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_5);
+
+    /** USB **/
+    /* PC3 - ID */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_3);
+    /* PB2 - /VCONN_FAULT */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_2);
+    /* PA5 - OUT1 | PA10 - OUT2 */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_A, PWR_GPIO_BIT_5);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_A, PWR_GPIO_BIT_10);
+    /* PA11 - D-USB | PA12 - D+USB */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_A, PWR_GPIO_BIT_11);
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_A, PWR_GPIO_BIT_12);
+
+    /** Bootloader **/
+    /* PH3 - BOOT0 */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_H, PWR_GPIO_BIT_3);
+
+    /** TEST PIN **/
+    /* PC15 - test pin 1 */
+    HAL_PWREx_EnableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_15);
+
+}
+
+/* Set Priority */
+void PAL_NVIC_SetPriority(IRQn_Type IRQn, uint32_t Priority)
+{
+    NVIC_SetPriority(IRQn, NVIC_EncodePriority(NVIC_PRIORITYGROUP_4, Priority, 0));
+}
+
+/* Get Priority */
+uint32_t PAL_NVIC_GetPriority(IRQn_Type IRQn)
+{
+    uint32_t preemptPriority;
+    uint32_t subPriority;
+    
+    NVIC_DecodePriority(NVIC_GetPriority(IRQn), NVIC_PRIORITYGROUP_4, &preemptPriority, &subPriority);
+    return preemptPriority;
+}
+
+/* Enable Interrupt */
+void PAL_NVIC_EnableIRQ(IRQn_Type IRQn)
+{
+    NVIC_EnableIRQ(IRQn);
+}
+
+/* Disable Interrupt */
+void PAL_NVIC_DisableIRQ(IRQn_Type IRQn)
+{
+    NVIC_DisableIRQ(IRQn);
+}
+
+
+/* Read GPIO */
+GPIO_PinState PAL_GetIO(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin)
+{
+    if((GPIOx->IDR & GPIO_Pin) != 0x00u)
+        return GPIO_PIN_SET;
+    else
+        return GPIO_PIN_RESET;
+}
+
+/* Set GPIO */
+void PAL_SetIO(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin)
+{
+    GPIOx->BSRR = (uint32_t)GPIO_Pin;
+}
+
+/* Reset GPIO */
+void PAL_ResetIO(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin)
+{
+    GPIOx->BRR = (uint32_t)GPIO_Pin;
+}
+
+/* Toggle GPIO */
+void PAL_ToggleIO(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin)
+{
+    if((GPIOx->ODR & GPIO_Pin) != 0x00u)
+        GPIOx->BRR = (uint32_t)GPIO_Pin;
+    else
+        GPIOx->BSRR = (uint32_t)GPIO_Pin;
+}
+
+/* Bootloader */
+void PAL_ActivateBootloader(void)
+{
+    /* Set BOOT0 and wait for 100 ms */
+    PAL_SetIO(BOOT0_PORT, BOOT0_PIN);
+    HRT_Delay(100 * 1000);
+}
+
+/******************************** End of File *********************************/

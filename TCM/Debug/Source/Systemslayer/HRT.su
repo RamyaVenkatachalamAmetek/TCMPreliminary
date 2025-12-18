@@ -1,0 +1,7 @@
+HRT.c:30:6:HRT_Init	16	static
+HRT.c:73:6:HRT_IncTick	4	static
+HRT.c:79:10:HRT_GetTick	4	static
+HRT.c:85:6:HRT_Delay	24	static
+HRT.c:99:6:HRT_IsTimedOut	16	static
+HRT.c:107:6:HRT_Pause	8	static
+HRT.c:113:6:HRT_Resume	8	static

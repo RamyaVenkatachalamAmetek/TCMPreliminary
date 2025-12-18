@@ -1,0 +1,15 @@
+USBi.c:54:13:USBi_TxCmplt	4	static
+USBi.c:63:13:USBi_RxCB	24	static
+USBi.c:78:13:USBi_GetDFPAttachStatus	8	static
+USBi.c:87:13:USBi_GetOverCurrentStatus	8	static
+USBi.c:96:16:USBi_GetCurrentLevelStatus	8	static
+USBi.c:116:13:USBi_Start	32	static
+USBi.c:167:13:USBi_Stop	16	static
+USBi.c:183:13:USBi_Enable	4	static
+USBi.c:189:13:USBi_Disable	4	static
+USBi.c:195:13:USBi_Tx	16	static
+USBi.c:210:13:USBi_GetStatus	16	static
+USBi.c:220:9:USBi_GetMode	4	static
+USBi.c:227:13:USBi_SetMode	32	static
+USBi.c:285:6:USBi_Process	16	static
+USBi.c:300:6:USBi_ISR	8	static

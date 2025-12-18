@@ -1,0 +1,13 @@
+System.c:77:6:SetState	16	static
+System.c:83:13:GoShutdown	24	static
+System.c:154:13:GoSleep	4	static
+System.c:446:6:Sys_InitStage1	8	static
+System.c:459:6:Sys_InitStage2	8	static
+System.c:494:6:Sys_SetReqReboot	4	static
+System.c:503:6:Sys_SetReqSleep	4	static
+System.c:512:6:Sys_IsSleeping	4	static
+System.c:520:6:Sys_SetReqBootloader	4	static
+System.c:530:6:Sys_SetCommActive	8	static
+System.c:538:6:Sys_Shutdown	16	static
+System.c:544:6:Sys_SetWakeupOnExtPwr	16	static
+System.c:550:6:Sys_GetWakeupOnExtPwr	4	static
