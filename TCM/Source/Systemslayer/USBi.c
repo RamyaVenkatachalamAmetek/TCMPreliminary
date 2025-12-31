@@ -53,10 +53,9 @@ static uint8_t USBi_Mode = USBi_MODE_UNKNOWN;
 /* Tx complete callback */
 static void USBi_TxCmplt(void)
 {
-	/*RV:
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	xSemaphoreGiveFromISR(COMUSBSem, &xHigherPriorityTaskWoken);
-	portYIELD_FROM_ISR(xHigherPriorityTaskWoken); */
+	portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 /* RX callback */
@@ -64,14 +63,14 @@ static void USBi_RxCB(uint8_t *Data, uint32_t Size)
 {
     uint32_t bufLen = Size;
     uint8_t *pData = Data;
-/*RV:
+
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     for(uint32_t i = 0; i < bufLen; i++) {
         if(pdFALSE == xQueueIsQueueFullFromISR(CmdUSBQ))
             xQueueSendFromISR(CmdUSBQ, (void*)pData, &xHigherPriorityTaskWoken);
         pData++;
     }
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);*/
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 /* Get DFP attach status */
