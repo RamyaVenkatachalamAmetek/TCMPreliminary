@@ -436,6 +436,7 @@ void PAL_InitStage1(void)
     /* Configure system and peripheral clocks */
     PAL_ConfigClocks();
 
+#if 0
 #ifndef NDEBUG
     HAL_RCC_GetOscConfig(&dRCC_OscInitStruct);
     HAL_RCC_GetClockConfig(&dRCC_ClkInitStruct, &dFLatency);
@@ -443,6 +444,7 @@ void PAL_InitStage1(void)
     dClockFreqs.HCLKFreq = HAL_RCC_GetHCLKFreq();
     dClockFreqs.PCLK1Freq = HAL_RCC_GetPCLK1Freq();
     dClockFreqs.PCLK2Freq = HAL_RCC_GetPCLK2Freq();
+#endif
 #endif
 
     /* Configure all GPIOs as Analog to reduce power consumption */

@@ -50,6 +50,8 @@ SemaphoreHandle_t COMUSBSem; // Mutex for USB COM sync
 /* Create Inter Task Communciation Objects */
 static void CreateSyncObjects(void)
 {
+
+#if 0
 #define SAMPLEQ_LEN    (500)
 #define SAMPLEQ_SIZE   (sizeof(ChnReading_t)) // Timestamp and measurement
 
@@ -72,7 +74,7 @@ static void CreateSyncObjects(void)
             comDataQStorage,
             &xComDataQStruct);
     configASSERT(ComDataQ);
-
+#endif
 #define CMDQ_LEN    (256)
 #define CMDQ_SIZE   (sizeof(uint8_t)) // byte stream
 
@@ -85,7 +87,7 @@ static void CreateSyncObjects(void)
             cmdUSBQStorage,
             &xCmdUSBQStruct);
     configASSERT(CmdUSBQ);
-
+#if 0
     /* For command receive - TCM */
     static StaticQueue_t xCmdTCMQStruct;
     static uint8_t cmdTCMQStorage[CMDQ_LEN * CMDQ_SIZE];
@@ -121,6 +123,7 @@ static void CreateSyncObjects(void)
             cmdAxM2QStorage,
             &xCmdAxM2QStruct);
     configASSERT(CmdAxM2Q);
+#endif
 }
 
 /* Public Functions */

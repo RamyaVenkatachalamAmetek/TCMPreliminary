@@ -7,21 +7,21 @@
 
 /* Includes */
 #include "COM.h"
-#include "DAQ.h"
+//#include "DAQ.h"
 #include "Tasks.h"
-#include "Cmds.h"
+//#include "Cmds.h"
 #include "System.h"
 
 #include "Error.h"
 
 #include "USBi.h"
-#include "TCMi.h"
-#include "AxMi.h"
+//#include "TCMi.h"
+//#include "AxMi.h"
 
-#include "IO.h"
-#include "Watchdog.h"
+//#include "IO.h"
+//#include "Watchdog.h"
 
-#include "Device.h"
+//#include "Device.h"
 
 /* Macros */
 
@@ -373,7 +373,7 @@ static void COMTasks_Create(void)
                                         &xComCmdUSBTaskTCB);
     if (xComCmdUSBTaskHandle == NULL)
         Error_Handler(ERROR_TASK_CREATE);
-
+#if 0
     /* Command processing task for TCM */
     static StaticTask_t xComCmdTCMTaskTCB;
     static StackType_t uxComCmdTCMTaskStack[COMCMDTCMTASK_STACKSZ];
@@ -429,6 +429,7 @@ static void COMTasks_Create(void)
             &xComEvtTCMTaskTCB);
     if (xComEvtTCMTaskHandle == NULL)
         Error_Handler(ERROR_TASK_CREATE);
+#endif
 }
 
 /* Public Functions */
@@ -446,6 +447,7 @@ bool COM_Init(void)
     if(stdRet != RET_OK)
        Error_Handler(ERROR_BOOTUP_USB);
 
+#if 0
     /* Start TCM */
     stdRet = TCMi_ComStart();
     if (stdRet != RET_OK)
@@ -453,7 +455,7 @@ bool COM_Init(void)
 
     /* Start AxMs */
     AxMi_Init();
-
+#endif
     return true;
 }
 

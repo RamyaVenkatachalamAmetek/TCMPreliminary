@@ -42,6 +42,7 @@ I2C_HandleTypeDef hPwrI2C;
 
 
 /* Get /EXT_PWR status */
+#if 0 //RV:commenting out
 static bool IsExtPowerPresent(void)
 {
     if(GPIO_PIN_SET == PAL_GetIO(PWR_nEXT_PWR_PORT, PWR_nEXT_PWR_PIN))
@@ -49,7 +50,7 @@ static bool IsExtPowerPresent(void)
     else
         return true;
 }
-
+#endif
 /* Public Functions */
 
 /* Init - Stage1 */

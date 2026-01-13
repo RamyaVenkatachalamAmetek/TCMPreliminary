@@ -7,7 +7,7 @@
 
 /* Includes */
 #include "PAL.h"
-//RV:#include "Tasks.h"
+#include "Tasks.h"
 #include "Error.h"
 
 #include "USBi.h"
